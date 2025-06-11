@@ -46,3 +46,6 @@ checkpoints/
 
 # Ignore generated sample .wav files
 **/*.wav
+
+# Ignore mac related files
+*.DS_Store
