@@ -3,9 +3,12 @@ import numpy as np
 import torch
 import gradio as gr
 from chatterbox.tts import ChatterboxTTS
+from chatterbox.common.torch_device import get_default_device
 
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = get_default_device()
+
+print(f"Using device: {DEVICE}")
 
 
 def set_seed(seed: int):
