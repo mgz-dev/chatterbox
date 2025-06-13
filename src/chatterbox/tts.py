@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-
+import os
 import librosa
 import torch
 from .perth import PerthImplicitWatermarker
@@ -17,6 +17,11 @@ from .models.t3.modules.cond_enc import T3Cond
 
 
 REPO_ID = "ResembleAI/chatterbox"
+
+# Set environment variables
+os.environ.update({
+    'GRADIO_ANALYTICS_ENABLED': 'False',
+})
 
 
 def punc_norm(text: str) -> str:
@@ -216,6 +221,9 @@ class ChatterboxTTS:
     def generate(
         self,
         text,
+        repetition_penalty=1.2,
+        min_p=0.05,
+        top_p=1.0,
         audio_prompt_path=None,
         exaggeration=0.5,
         cfg_weight=0.5,
@@ -255,13 +263,16 @@ class ChatterboxTTS:
                 max_new_tokens=1000,  # TODO: use the value in config
                 temperature=temperature,
                 cfg_weight=cfg_weight,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                top_p=top_p,
             )
             # Extract only the conditional batch.
             speech_tokens = speech_tokens[0]
 
             # TODO: output becomes 1D
             speech_tokens = drop_invalid_tokens(speech_tokens)
-            
+
             speech_tokens = speech_tokens[speech_tokens < 6561]
 
             speech_tokens = speech_tokens.to(self.device)

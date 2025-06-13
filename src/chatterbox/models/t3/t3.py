@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 from transformers import LlamaModel, LlamaConfig, DynamicCache
-from transformers.generation.logits_process import TopPLogitsWarper, RepetitionPenaltyLogitsProcessor
+from transformers.generation.logits_process import TopPLogitsWarper, MinPLogitsWarper, RepetitionPenaltyLogitsProcessor
 
 from .modules.learned_pos_emb import LearnedPositionEmbeddings
 
@@ -218,10 +218,11 @@ class T3(nn.Module):
         stop_on_eos=True,
         do_sample=True,
         temperature=0.8,
-        top_p=0.8,
+        min_p=0.05,
+        top_p=1.00,
         length_penalty=1.0,
-        repetition_penalty=2.0,
-        cfg_weight=0,
+        repetition_penalty=1.2,
+        cfg_weight=0.0,
     ):
         """
         Args:
@@ -272,7 +273,7 @@ class T3(nn.Module):
         #     max_new_tokens=max_new_tokens or self.hp.max_speech_tokens,
         #     num_return_sequences=num_return_sequences,
         #     temperature=temperature,
-        #     top_p=top_p,
+        #     min_p=min_p,
         #     length_penalty=length_penalty,
         #     repetition_penalty=repetition_penalty,
         #     do_sample=do_sample,
@@ -299,8 +300,8 @@ class T3(nn.Module):
         predicted = []  # To store the predicted tokens
 
         # Instantiate the logits processors.
-        top_p_warper = TopPLogitsWarper(top_p=top_p)
-        repetition_penalty_processor = RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
+        min_p_warper = MinPLogitsWarper(min_p=min_p)
+        repetition_penalty_processor = RepetitionPenaltyLogitsProcessor(penalty=float(repetition_penalty))
 
         # ---- Initial Forward Pass (no kv_cache yet) ----
         output = self.patched_model(
@@ -333,7 +334,7 @@ class T3(nn.Module):
 
             # Apply repetition penalty and top‑p filtering.
             logits = repetition_penalty_processor(generated_ids, logits)
-            logits = top_p_warper(None, logits)
+            logits = min_p_warper(None, logits)
 
             # Convert logits to probabilities and sample the next token.
             probs = torch.softmax(logits, dim=-1)
