@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 from transformers import LlamaModel, LlamaConfig, DynamicCache
-from transformers.generation.logits_process import TopPLogitsWarper, MinPLogitsWarper, RepetitionPenaltyLogitsProcessor
+from transformers.generation.logits_process import MinPLogitsWarper, RepetitionPenaltyLogitsProcessor, TopPLogitsWarper
 
 from .modules.learned_pos_emb import LearnedPositionEmbeddings
 
@@ -222,7 +222,7 @@ class T3(nn.Module):
         top_p=1.00,
         length_penalty=1.0,
         repetition_penalty=1.2,
-        cfg_weight=0.0,
+        cfg_weight=0,
     ):
         """
         Args:
@@ -301,6 +301,7 @@ class T3(nn.Module):
 
         # Instantiate the logits processors.
         min_p_warper = MinPLogitsWarper(min_p=min_p)
+        top_p_warper = TopPLogitsWarper(top_p=top_p)
         repetition_penalty_processor = RepetitionPenaltyLogitsProcessor(penalty=float(repetition_penalty))
 
         # ---- Initial Forward Pass (no kv_cache yet) ----
@@ -335,6 +336,7 @@ class T3(nn.Module):
             # Apply repetition penalty and top‑p filtering.
             logits = repetition_penalty_processor(generated_ids, logits)
             logits = min_p_warper(None, logits)
+            logits = top_p_warper(None, logits)
 
             # Convert logits to probabilities and sample the next token.
             probs = torch.softmax(logits, dim=-1)
