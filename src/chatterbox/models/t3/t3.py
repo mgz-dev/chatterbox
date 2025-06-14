@@ -11,11 +11,12 @@ from transformers import LlamaModel, LlamaConfig, DynamicCache
 from transformers.generation.logits_process import MinPLogitsWarper, RepetitionPenaltyLogitsProcessor, TopPLogitsWarper
 
 from .modules.learned_pos_emb import LearnedPositionEmbeddings
-
+from .llama_model import ModifiedLlamaModel
 from .modules.cond_enc import T3CondEnc, T3Cond
 from .modules.t3_config import T3Config
 from .llama_configs import LLAMA_CONFIGS
 from .inference.t3_hf_backend import T3HuggingfaceBackend
+from .inference.alignment_stream_analyzer import AlignmentStreamAnalyzer
 from ..utils import AttrDict
 
 
@@ -42,7 +43,7 @@ class T3(nn.Module):
         super().__init__()
         self.hp = hp
         self.cfg = LlamaConfig(**LLAMA_CONFIGS[hp.llama_config_name])
-        self.tfmr = LlamaModel(self.cfg)
+        self.tfmr = ModifiedLlamaModel(self.cfg)
         self.dim = self.cfg.hidden_size
         self.deepspeed_patch_applied = False
 
@@ -98,13 +99,10 @@ class T3(nn.Module):
         len_cond = cond_emb.size(1)
 
         if cond_emb.size(0) != text_emb.size(0):
-             cond_emb = cond_emb.expand(text_emb.size(0), -1, -1)
+            cond_emb = cond_emb.expand(text_emb.size(0), -1, -1)
 
         # concat
-        embeds = torch.stack([
-            torch.cat((ce, te, se))
-            for ce, te, se in zip(cond_emb, text_emb, speech_emb)
-        ])  # (B, length, dim)
+        embeds = torch.cat((cond_emb, text_emb, speech_emb), dim=1)  # (B, length, dim)
         return embeds, len_cond
 
     def forward(
@@ -253,14 +251,18 @@ class T3(nn.Module):
         # TODO? synchronize the expensive compile function
         # with self.compile_lock:
         if not self.compiled:
-            patched_model = T3HuggingfaceBackend(
+            self.analyzer = AlignmentStreamAnalyzer(None, text_tokens_slice=(len_cond, len_cond + text_tokens.size(-1)), eos_idx=self.hp.stop_speech_token)
+            # self.analyzer = None
+
+            self.patched_model = T3HuggingfaceBackend(
                 config=self.cfg,
                 llama=self.tfmr,
                 speech_enc=self.speech_emb,
                 speech_head=self.speech_head,
-                alignment_stream_analyzer=None,
+                # alignment_stream_analyzer=self.analyzer,
+                alignment_layer_idx=9,
             )
-            self.patched_model = patched_model
+            # self.patched_model = patched_model
             self.compiled = True
 
         # # Run normal generate method, which calls our custom extended methods
@@ -321,6 +323,15 @@ class T3(nn.Module):
         for i in tqdm(range(max_new_tokens), desc="Sampling", dynamic_ncols=True):
             logits = output.logits[:, -1, :]
 
+            # 1. Extract the attention map from the model's explicit output.
+            # `output.attentions` is a tuple. Since we only requested one layer, it has one element.
+            last_attention_map = output.attentions[0]
+            # 2. The map is (B, H, T, T). We need the map for batch item 0 (the conditional batch)
+            # and average over the heads. This matches the old hook logic.
+            last_attention_map_for_analyzer = last_attention_map[0].mean(0)
+            # 3. Pass the logits AND the corresponding attention map to the analyzer.
+            logits = self.analyzer.step(logits, last_attention_map_for_analyzer)
+
             # CFG
             if cfg_weight > 0.0:
                 logits_cond = logits[0:1]
@@ -366,7 +377,7 @@ class T3(nn.Module):
                 return_dict=True,
             )
             # Update the kv_cache.
-            past = DynamicCache.from_legacy_cache(output.past_key_values)
+            # past = DynamicCache.from_legacy_cache(output.past_key_values)
 
         # Concatenate all predicted tokens along the sequence dimension.
         predicted_tokens = torch.cat(predicted, dim=1)  # shape: (B, num_tokens)

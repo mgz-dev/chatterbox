@@ -2,8 +2,11 @@ from typing import Optional
 
 import torch
 from torch import nn as nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from transformers import LlamaConfig, LlamaModel, LlamaPreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
+
+from ..llama_model import ModifiedLlamaModel
 
 
 class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
@@ -17,20 +20,21 @@ class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
     def __init__(
         self,
         config: LlamaConfig,
-        llama: LlamaModel,
+        llama: ModifiedLlamaModel,
         *,
         speech_enc,
         speech_head,
         latents_queue=None,
         logits_queue=None,
-        alignment_stream_analyzer: 'AlignmentStreamAnalyzer'=None,
+        alignment_layer_idx=9,
     ):
         super().__init__(config)
         self.model = llama
         self.speech_enc = speech_enc
         self.speech_head = speech_head
         self._added_cond = False
-        self.alignment_stream_analyzer = alignment_stream_analyzer
+        self.alignment_layer_idx = alignment_layer_idx
+
 
     @torch.inference_mode()
     def prepare_inputs_for_generation(
@@ -92,11 +96,15 @@ class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
         assert return_dict
         # assert output_hidden_states
 
+        # We want attentions from this specific layer to power the analyzer
+        output_attentions_layer_indices = [self.alignment_layer_idx]
+
         tfmr_out = self.model(
             inputs_embeds=inputs_embeds,
             past_key_values=past_key_values,
             use_cache=use_cache,
             output_attentions=output_attentions,
+            output_attentions_layer_indices=output_attentions_layer_indices,
             output_hidden_states=output_hidden_states,
             return_dict=True,
         )
@@ -104,9 +112,6 @@ class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
         hidden_states = tfmr_out.last_hidden_state
         logits = self.speech_head(hidden_states)
         # assert inputs_embeds.size(0) == 1 # (disabled for CFG)
-
-        # NOTE: hallucination handler may modify logits to force emit an EOS token
-        # logits = self.alignment_stream_analyzer.step(logits)
 
         return CausalLMOutputWithCrossAttentions(
             logits=logits,

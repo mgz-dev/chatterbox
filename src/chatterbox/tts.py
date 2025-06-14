@@ -123,6 +123,7 @@ class ChatterboxTTS:
     ):
         self.sr = S3GEN_SR  # sample rate of synthesized audio
         self.t3 = t3
+        self.t3 = torch.compile(t3, mode="reduce-overhead", fullgraph=True)
         self.s3gen = s3gen
         self.ve = ve
         self.tokenizer = tokenizer
