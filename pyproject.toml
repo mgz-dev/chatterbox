@@ -17,7 +17,13 @@ dependencies = [
     "transformers>=4.46.3",
     "diffusers>=0.29.0",
     "conformer>=0.3.2",
-    "safetensors>=0.5.3"
+    "safetensors>=0.5.3",
+    "pyloudnorm",
+    "ffmpeg-python",
+    "jiwer",
+    "nltk",
+    "openai-whisper",
+    "faster-whisper",
 ]
 
 [project.urls]
