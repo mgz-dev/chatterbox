@@ -7,6 +7,7 @@ from .perth import PerthImplicitWatermarker
 import torch.nn.functional as F
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
+import torch.nn as nn
 
 from .models.t3 import T3
 from .models.s3tokenizer import S3_SR, drop_invalid_tokens
@@ -86,11 +87,26 @@ class Conditionals:
     t3: T3Cond
     gen: dict
 
-    def to(self, device):
-        self.t3 = self.t3.to(device=device)
+    def to(self,
+           device: torch.device | str | None = None,
+           dtype: torch.dtype | None = None,
+           model: torch.nn.Module | None = None):
+        """
+        Move every tensor to device, and dtype.
+        """
+        if device is None:
+            # keep existing device unless user passes one explicitly
+            device = next(iter(self.t3.__dict__.values())).device
+
+        if dtype is None and model is not None:
+            # peek at the first parameter's dtype
+            dtype = next(model.parameters()).dtype
+
+        # propagate dtype & device
+        self.t3 = self.t3.to(device=device, dtype=dtype)
         for k, v in self.gen.items():
             if torch.is_tensor(v):
-                self.gen[k] = v.to(device=device)
+                self.gen[k] = v.to(device=device, dtype=dtype)
         return self
 
     def save(self, fpath: Path):
@@ -216,7 +232,8 @@ class ChatterboxTTS:
             cond_prompt_speech_tokens=t3_cond_prompt_tokens,
             emotion_adv=exaggeration * torch.ones(1, 1, 1),
         ).to(device=self.device)
-        self.conds = Conditionals(t3_cond, s3gen_ref_dict)
+        self.conds = Conditionals(t3_cond, s3gen_ref_dict).to(dtype=self.t3.speech_emb.weight.dtype)
+
 
     def generate(
         self,
