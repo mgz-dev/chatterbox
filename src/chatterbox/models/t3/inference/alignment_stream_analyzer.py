@@ -27,7 +27,7 @@ class AlignmentAnalysisResult:
 
 
 class AlignmentStreamAnalyzer:
-    def __init__(self, tfmr, queue, text_tokens_slice, alignment_layer_idx=9, eos_idx=0):
+    def __init__(self, queue, text_tokens_slice, eos_idx=0):
         """
         Some transformer TTS models implicitly solve text-speech alignment in one or more of their self-attention
         activation maps. This module exploits this to perform online integrity checks which streaming.
@@ -50,55 +50,18 @@ class AlignmentStreamAnalyzer:
         self.complete = False
         self.completed_at = None
 
-        # Using `output_attentions=True` is incompatible with optimized attention kernels, so
-        # using it for all layers slows things down too much. We can apply it to just one layer
-        # by intercepting the kwargs and adding a forward hook (credit: jrm)
-        self.last_aligned_attn = None
-        self._add_attention_spy(tfmr, alignment_layer_idx)
-
-    def _add_attention_spy(self, tfmr, alignment_layer_idx):
-        """
-        Adds a forward hook to a specific attention layer to collect outputs.
-        Using `output_attentions=True` is incompatible with optimized attention kernels, so
-        using it for all layers slows things down too much.
-        (credit: jrm)
-        """
-
-        def attention_forward_hook(module, input, output):
-            """
-            See `LlamaAttention.forward`; the output is a 3-tuple: `attn_output, attn_weights, past_key_value`.
-            NOTE:
-            - When `output_attentions=True`, `LlamaSdpaAttention.forward` calls `LlamaAttention.forward`.
-            - `attn_output` has shape [B, H, T0, T0] for the 0th entry, and [B, H, 1, T0+i] for the rest i-th.
-            """
-            step_attention = output[1].cpu() # (B, 16, N, N)
-            self.last_aligned_attn = step_attention[0].mean(0) # (N, N)
-
-        target_layer = tfmr.layers[alignment_layer_idx].self_attn
-        hook_handle = target_layer.register_forward_hook(attention_forward_hook)
-
-        # Backup original forward
-        original_forward = target_layer.forward
-        def patched_forward(self, *args, **kwargs):
-            kwargs['output_attentions'] = True
-            return original_forward(*args, **kwargs)
-
-        # TODO: how to unpatch it?
-        target_layer.forward = MethodType(patched_forward, target_layer)
-
-    def step(self, logits):
+    def step(self, logits: torch.Tensor, last_aligned_attn: torch.Tensor):
         """
         Emits an AlignmentAnalysisResult into the output queue, and potentially modifies the logits to force an EOS.
         """
         # extract approximate alignment matrix chunk (1 frame at a time after the first chunk)
-        aligned_attn = self.last_aligned_attn # (N, N)
         i, j = self.text_tokens_slice
         if self.curr_frame_pos == 0:
             # first chunk has conditioning info, text tokens, and BOS token
-            A_chunk = aligned_attn[j:, i:j].clone().cpu() # (T, S)
+            A_chunk = last_aligned_attn[j:, i:j].clone().cpu() # (T, S)
         else:
             # subsequent chunks have 1 frame due to KV-caching
-            A_chunk = aligned_attn[:, i:j].clone().cpu() # (1, S)
+            A_chunk = last_aligned_attn[:, i:j].clone().cpu() # (1, S)
 
         # TODO: monotonic masking; could have issue b/c spaces are often skipped.
         A_chunk[:, self.curr_frame_pos + 1:] = 0

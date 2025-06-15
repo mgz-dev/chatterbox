@@ -1,8 +1,11 @@
 """
 This contains a stub class to remove Chatterbox Perth dependency.
 """
+
+
 class PerthImplicitWatermarker:
     """stub class replacement for Perth"""
+
     def __init__(self, *args, **kwargs):
         pass
 

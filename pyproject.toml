@@ -17,12 +17,18 @@ dependencies = [
     "transformers>=4.46.3",
     "diffusers>=0.29.0",
     "conformer>=0.3.2",
-    "safetensors>=0.5.3"
+    "safetensors>=0.5.3",
+    "pyloudnorm",
+    "ffmpeg-python",
+    "jiwer",
+    "nltk",
+    "openai-whisper",
+    "faster-whisper",
 ]
 
 [project.urls]
-Homepage = "https://github.com/resemble-ai/chatterbox"
-Repository = "https://github.com/resemble-ai/chatterbox"
+Homepage = "https://github.com/mgz-dev/chatterbox/tree/master"
+Repository = "https://github.com/mgz-dev/chatterbox/tree/master"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -30,3 +36,28 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 150
+target-version = ["py310"]
+include = '\.py$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.venv
+  | env
+  | venv
+  | build
+  | dist
+  | (^|.*/)(__init__|setup)\.py
+)/
+'''
+extend-exclude = '''
+  (?i:.*docker.*)
+  | .*\.ipynb
+'''
+
+skip-string-normalization = true
