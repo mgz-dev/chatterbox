@@ -36,3 +36,28 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 150
+target-version = ["py310"]
+include = '\.py$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.venv
+  | env
+  | venv
+  | build
+  | dist
+  | (^|.*/)(__init__|setup)\.py
+)/
+'''
+extend-exclude = '''
+  (?i:.*docker.*)
+  | .*\.ipynb
+'''
+
+skip-string-normalization = true
