@@ -1,22 +1,16 @@
-import torch
 import torchaudio as ta
-
 from chatterbox.vc import ChatterboxVC
+from chatterbox.common.torch_device import get_default_device
 
-# Automatically detect the best available device
-if torch.cuda.is_available():
-    device = "cuda"
-elif torch.backends.mps.is_available():
-    device = "mps"
-else:
-    device = "cpu"
 
-print(f"Using device: {device}")
+DEVICE = get_default_device()
+
+print(f"Using device: {DEVICE}")
 
 AUDIO_PATH = "YOUR_FILE.wav"
 TARGET_VOICE_PATH = "YOUR_FILE.wav"
 
-model = ChatterboxVC.from_pretrained(device)
+model = ChatterboxVC.from_pretrained(DEVICE)
 wav = model.generate(
     audio=AUDIO_PATH,
     target_voice_path=TARGET_VOICE_PATH,
