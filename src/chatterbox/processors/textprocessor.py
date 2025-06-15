@@ -50,14 +50,7 @@ class TextPreprocessor:
 
     def normalize_typography(self, text: str) -> str:
         """Convert smart quotes / dashes to plain ASCII equivalents."""
-        return (
-            text.replace("“", '"')
-            .replace("”", '"')
-            .replace("‘", "'")
-            .replace("’", "'")
-            .replace("—", " - ")
-            .replace("–", " - ")
-        )
+        return text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("—", " - ").replace("–", " - ")
 
     def collapse_punctuation(self, text: str) -> str:
         """Collapse sequences of dots into a single ellipsis and repeated !/?."""
@@ -154,12 +147,8 @@ class TextPreprocessor:
                 pieces.extend(self._split_long(s))
 
         # thresholds
-        max_limit = int(
-            self.max_chunk * (1 + self.overflow_tolerence)
-        )  # allow up to  overflow
-        min_merge = int(
-            self.max_chunk * self.overflow_tolerence
-        )  # any chunk shorter than overflow of max_chunk
+        max_limit = int(self.max_chunk * (1 + self.overflow_tolerence))  # allow up to  overflow
+        min_merge = int(self.max_chunk * self.overflow_tolerence)  # any chunk shorter than overflow of max_chunk
 
         # 2) greedy pack with overflow tolerance
         chunks: List[str] = []

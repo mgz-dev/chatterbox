@@ -82,14 +82,7 @@ class AudioPreprocessor:
             #  → brick-wall limiter at –0.1 dB
             "alimiter=level=-0.1dB:attack=5:release=50"
         )
-        (
-            ffmpeg.input(str(src))
-            .output(
-                str(dst), ar=self.target_sr, ac=1, af=filter_chain, sample_fmt="s16"
-            )
-            .overwrite_output()
-            .run(quiet=False)
-        )
+        (ffmpeg.input(str(src)).output(str(dst), ar=self.target_sr, ac=1, af=filter_chain, sample_fmt="s16").overwrite_output().run(quiet=False))
 
     def _peak_normalize(self, x: np.ndarray) -> np.ndarray:
         peak = np.max(np.abs(x))
@@ -100,9 +93,7 @@ class AudioPreprocessor:
         logger.debug("Peak=%.3f → factor=%.3f", peak, factor)
         return x * factor
 
-    def preprocess_array(
-        self, audio: np.ndarray, sr: int, modify_sr=False
-    ) -> Tuple[np.ndarray, int]:
+    def preprocess_array(self, audio: np.ndarray, sr: int, modify_sr=False) -> Tuple[np.ndarray, int]:
         """
         Apply all in-memory steps up to loudness/peak.
         (FFmpeg loudnorm and final write is in preprocess_file.)

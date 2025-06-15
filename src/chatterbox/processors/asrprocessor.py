@@ -37,9 +37,7 @@ class ASRVerifier:
         self.threshold = compare_threshold
 
         self.model_id = model_name
-        logger.debug(
-            f"ASRVerifier init: model={self.model_id} faster={self.use_faster} device={self.device}"
-        )
+        logger.debug(f"ASRVerifier init: model={self.model_id} faster={self.use_faster} device={self.device}")
 
         # load model once
         if self.use_faster:
