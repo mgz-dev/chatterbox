@@ -221,6 +221,7 @@ class T3(nn.Module):
         length_penalty=1.0,
         repetition_penalty=1.2,
         cfg_weight=0,
+        alignment_layer_idx=None,
     ):
         """
         Args:
@@ -259,8 +260,7 @@ class T3(nn.Module):
                 llama=self.tfmr,
                 speech_enc=self.speech_emb,
                 speech_head=self.speech_head,
-                # alignment_stream_analyzer=self.analyzer,
-                alignment_layer_idx=9,
+                alignment_layer_idx=alignment_layer_idx,  # original value was 9
             )
             # self.patched_model = patched_model
             self.compiled = True
@@ -323,14 +323,15 @@ class T3(nn.Module):
         for i in tqdm(range(max_new_tokens), desc="Sampling", dynamic_ncols=True):
             logits = output.logits[:, -1, :]
 
-            # 1. Extract the attention map from the model's explicit output.
-            # `output.attentions` is a tuple. Since we only requested one layer, it has one element.
-            last_attention_map = output.attentions[0]
-            # 2. The map is (B, H, T, T). We need the map for batch item 0 (the conditional batch)
-            # and average over the heads. This matches the old hook logic.
-            last_attention_map_for_analyzer = last_attention_map[0].mean(0)
-            # 3. Pass the logits AND the corresponding attention map to the analyzer.
-            logits = self.analyzer.step(logits, last_attention_map_for_analyzer)
+            if alignment_layer_idx is not None:
+                # 1. Extract the attention map from the model's explicit output.
+                # `output.attentions` is a tuple. Since we only requested one layer, it has one element.
+                last_attention_map = output.attentions[0]
+                # 2. The map is (B, H, T, T). We need the map for batch item 0 (the conditional batch)
+                # and average over the heads. This matches the old hook logic.
+                last_attention_map_for_analyzer = last_attention_map[0].mean(0)
+                # 3. Pass the logits AND the corresponding attention map to the analyzer.
+                logits = self.analyzer.step(logits, last_attention_map_for_analyzer)
 
             # CFG
             if cfg_weight > 0.0:

@@ -1,9 +1,8 @@
-from typing import Optional
+from typing import Optional, Union, Sequence
 
 import torch
 from torch import nn as nn
-from torch.nn.attention import SDPBackend, sdpa_kernel
-from transformers import LlamaConfig, LlamaModel, LlamaPreTrainedModel, GenerationMixin
+from transformers import LlamaConfig, LlamaPreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
 
 from ..llama_model import ModifiedLlamaModel
@@ -24,9 +23,9 @@ class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
         *,
         speech_enc,
         speech_head,
-        latents_queue=None,
-        logits_queue=None,
-        alignment_layer_idx=9,
+        latents_queue: Optional[torch.Tensor] = None,
+        logits_queue: Optional[torch.Tensor] = None,
+        alignment_layer_idx: Optional[Union[int, Sequence[int]]] = None,
     ):
         super().__init__(config)
         self.model = llama
@@ -97,7 +96,12 @@ class T3HuggingfaceBackend(LlamaPreTrainedModel, GenerationMixin):
         # assert output_hidden_states
 
         # We want attentions from this specific layer to power the analyzer
-        output_attentions_layer_indices = [self.alignment_layer_idx]
+        if self.alignment_layer_idx is None:
+            output_attentions_layer_indices = None
+        elif isinstance(self.alignment_layer_idx, (list, tuple)):
+            output_attentions_layer_indices = list(self.alignment_layer_idx)
+        else:
+            output_attentions_layer_indices = [self.alignment_layer_idx]
 
         tfmr_out = self.model(
             inputs_embeds=inputs_embeds,
