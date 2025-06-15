@@ -27,8 +27,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/resemble-ai/chatterbox"
-Repository = "https://github.com/resemble-ai/chatterbox"
+Homepage = "https://github.com/mgz-dev/chatterbox/tree/master"
+Repository = "https://github.com/mgz-dev/chatterbox/tree/master"
 
 [build-system]
 requires = ["setuptools>=61.0"]
