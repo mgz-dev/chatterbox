@@ -20,10 +20,15 @@ from chatterbox.tts import ChatterboxTTS
 from chatterbox.processors.textprocessor import TextPreprocessor
 from chatterbox.processors.audioprocessor import AudioProcessor
 from chatterbox.processors.asrprocessor import ASRVerifier
+from chatterbox.common.torch_device import get_default_device
 
 logger = logging.getLogger(__name__)
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+DEVICE = get_default_device()
+
+print(f"Using device: {DEVICE}")
+
 
 # One global text preprocessor; ASR get passed around, audio processor initiated elsewhere
 TXT_PROC = TextPreprocessor(max_chunk_chars=400)

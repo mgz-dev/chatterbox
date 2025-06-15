@@ -1,10 +1,11 @@
 import re
 import logging
-from typing import Tuple, NamedTuple
+from typing import Tuple, NamedTuple, Union
 import unicodedata
 import whisper
 from jiwer import wer
 from faster_whisper import WhisperModel as FasterWhisperModel
+import torch
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -27,7 +28,7 @@ class ASRVerifier:
         self,
         model_name: str,
         use_faster_whisper: bool = False,
-        device: str = "cpu",
+        device: Union[str, torch.device] = "cpu",
         compare_threshold: float = 0.95,
     ):
         self.device = device
@@ -41,15 +42,25 @@ class ASRVerifier:
             self.use_faster,
             self.device,
         )
-        # load model once
+
+        # Normalize device
+        if isinstance(device, torch.device):
+            torch_dev = device
+            fw_dev = device.type
+        else:
+            torch_dev = torch.device(device)
+            fw_dev = device.split(":", 1)[0]
+
         if self.use_faster:
+            compute_type = "float16" if fw_dev == "cuda" else "float32"
             self.model = FasterWhisperModel(
                 self.model_id,
-                device=self.device,
-                compute_type="float16" if self.device.startswith("cuda") else "float32",
+                device=fw_dev,
+                compute_type=compute_type,
             )
         else:
-            self.model = whisper.load_model(self.model_id, device=self.device)
+            # whisper.load_model accepts either torch.device or str
+            self.model = whisper.load_model(self.model_id, device=torch_dev)
 
         # compile punctuation/space regexes
         self._dash_re = re.compile(r"[–—-]")

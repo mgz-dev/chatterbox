@@ -15,7 +15,6 @@ from typing import Optional
 from tts_core import load_model, generate
 from chatterbox.processors.audioprocessor import AudioProcessor
 
-
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 # os.environ["HF_HUB_OFFLINE"] = "1"  # remove comment to not request HEAD from HF
 
