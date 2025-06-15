@@ -1,6 +1,4 @@
-import os
 import re
-import string
 import logging
 from typing import Tuple, NamedTuple
 import unicodedata
@@ -37,8 +35,12 @@ class ASRVerifier:
         self.threshold = compare_threshold
 
         self.model_id = model_name
-        logger.debug(f"ASRVerifier init: model={self.model_id} faster={self.use_faster} device={self.device}")
-
+        logger.debug(
+            "ASRVerifier init: model=%s faster=%s device=%s",
+            self.model_id,
+            self.use_faster,
+            self.device,
+        )
         # load model once
         if self.use_faster:
             self.model = FasterWhisperModel(
