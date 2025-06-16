@@ -182,7 +182,7 @@ def _tts_chunks(
     chunks = TXT_PROC.process(text)
     sr = model.sr
     # Not sure if it is worth generating scaled noise here, we can just fill in on final pass?
-    silence_db_offset = 2*ap.silence_margin_db
+    # silence_db_offset = 2*ap.silence_margin_db
     # Generate at 2x target silence to guaranteee processor will trim at final run
     target_silence_samples = 2*int(ap.target_silence_ms * sr / 1000)
 
@@ -221,7 +221,7 @@ def _tts_chunks(
             if asr_verifier.is_acceptable(score):
                 break
 
-        # noise_floor_db, _ = ap.energy_vad(best_wav, sr)
+        # noise_floor_db, _ = ap._energy_vad(best_wav, sr)
         # silence = ap._generate_comfort_noise(length=target_silence_samples, db_level=noise_floor_db - silence_db_offset)
         silence = np.zeros(target_silence_samples, dtype=np.float32)
 

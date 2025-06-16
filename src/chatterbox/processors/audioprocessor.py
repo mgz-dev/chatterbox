@@ -27,13 +27,14 @@ class AudioProcessor:
     def __init__(
         self,
         target_sr: int = 48_000,
-        target_lufs: float = -24.0,
+        target_lufs: float = -16.0,
         peak_ceiling_db: float = -3,
         hpf_cutoff: int = 80,
         butter_order: int = 2,
         target_silence_ms: int = 200,
         fade_ms: int = 10,
         silence_margin_db: float = 3,
+        vad_percentile: float = 5,
         seed: Optional[int] = None,
         use_memory_io: bool = False,
     ):
@@ -46,6 +47,7 @@ class AudioProcessor:
         self.target_silence_ms = target_silence_ms
         self.fade_ms = fade_ms
         self.silence_margin_db = silence_margin_db
+        self.vad_percentile = vad_percentile
 
         # reproducible noise RNG
         self.seed = seed
@@ -68,6 +70,7 @@ class AudioProcessor:
         target_silence_ms: Optional[int] = None,
         fade_ms: Optional[int] = None,
         silence_margin_db: Optional[float] = None,
+        vad_percentile: Optional[float] = None,
         seed: Optional[int] = None,
         use_memory_io: Optional[bool] = None,
     ) -> None:
@@ -100,6 +103,9 @@ class AudioProcessor:
 
         if silence_margin_db is not None:
             self.silence_margin_db = silence_margin_db
+
+        if vad_percentile is not None:
+            self.vad_percentile = vad_percentile
 
         if seed is not None:
             self.seed = seed
@@ -175,27 +181,36 @@ class AudioProcessor:
 
         return np.concatenate([a[:-fade_samples].copy(), overlap, b[fade_samples:].copy()])
 
-    def energy_vad(self, x: np.ndarray, sr: int, frame_ms: float = 20.0, hop_ms: float = 10.0, noise_pct: float = 10.0) -> tuple[float, float]:
+    def _energy_vad(self, x: np.ndarray, sr: int, frame_ms: float = 20.0, hop_ms: float = 10.0) -> tuple[float, float]:
         """
         Estimate a dB threshold for silence by computing RMS per frame, taking the `noise_pct`-percentile as noise-floor
         """
+        noise_pct = self.vad_percentile
         frame_len = int(sr * frame_ms / 1000)
         hop_len = int(sr * hop_ms / 1000)
         # how many full frames fit?
         n_frames = 1 + max(0, (len(x) - frame_len) // hop_len)
 
+        # scale for proper DBFs calc
+        full_scale = np.max(np.abs(x))
+
+        if full_scale > 0:  # Avoid division by zero for silence
+            x_norm = x / full_scale
+        else:
+            x_norm = x
+
         energies_db = np.empty(n_frames, dtype=np.float32)
         for i in range(n_frames):
             start = i * hop_len
-            frame = x[start: start + frame_len]
+            frame = x_norm[start: start + frame_len]
             rms = np.sqrt(np.mean(frame**2)) or 1e-12
             energies_db[i] = 20 * np.log10(rms)
 
         # pick a low percentile as the noise floor
-        noise_floor_db = float(np.percentile(energies_db, noise_pct))
-        top_db = max(0, abs(noise_floor_db + self.silence_margin_db))
+        noise_floor_db = float(np.percentile(energies_db, noise_pct)) - self.silence_margin_db
+        logger.info("Full scale: %.2f noise_floor %.2f", full_scale, noise_floor_db)
 
-        return noise_floor_db, top_db
+        return noise_floor_db, energies_db
 
     def _generate_comfort_noise(self, length: int, db_level: float) -> np.ndarray:
         """Generate Gaussian noise of `length` samples at `db_level` dBFS RMS."""
@@ -212,10 +227,9 @@ class AudioProcessor:
 
         return noise
 
-    def _trim_speech_region(self, x: np.ndarray, sr: int, fade_ms: int) -> np.ndarray:
+    def _trim_speech_region(self, x: np.ndarray, sr: int, fade_ms: int, top_db: float) -> np.ndarray:
         """Trim leading/trailing silence based on VAD, keeping a small 2x`fade_ms` margin. No actual fade."""
 
-        _, top_db = self.energy_vad(x, sr)
         pad_ms = 2 * self.fade_ms if fade_ms is None else 2 * fade_ms  # 2x fade default fade ms arbitrary setting
 
         intervals = librosa.effects.split(x, top_db=top_db)
@@ -231,21 +245,16 @@ class AudioProcessor:
         logger.debug("trim_speech_region: keeping samples [%d:%d] (margin %d samples, top_db=%.1f)", start, end, margin, top_db)
         return x[start:end]
 
-    def remove_edge_silence(self, x: np.ndarray, sr: int, fade_ms: int) -> np.ndarray:
+    def _remove_edge_silence(self, x: np.ndarray, sr: int, fade_ms: int, top_db: float) -> np.ndarray:
         """Trim silence from start/end then apply a fade of `fade_ms` ms."""
-        _, top_db = self.energy_vad(x, sr)
-
         # Trim edges
         y, _ = librosa.effects.trim(x, top_db=top_db)
         # Fade
         return self._apply_fade(y, sr, fade_ms)
 
-    def remove_internal_silence(self, x: np.ndarray, sr: int, target_silence_ms: int, fade_ms: int) -> np.ndarray:
+    def _remove_internal_silence(self, x: np.ndarray, sr: int, target_silence_ms: int, fade_ms: int, top_db) -> np.ndarray:
         """Replace internal gaps > `target_silence_ms` ms with comfort noise and crossfade all joins with `fade_ms` ms overlaps."""
-        noise_floor_db, top_db = self.energy_vad(x, sr)
-        silence_margin_db = 2*self.silence_margin_db
         target_silence_samples = int(target_silence_ms * sr / 1000)
-
         intervals = librosa.effects.split(x, top_db=top_db)
         if len(intervals) < 2:
             logger.debug("remove_internal_silence: %d interval(s), nothing to do", len(intervals))
@@ -265,7 +274,7 @@ class AudioProcessor:
                 else:
                     # long gap: replace with comfort noise at (trim_silence_db) dBFS
                     collapsed += 1
-                    chunk = self._generate_comfort_noise(target_silence_samples, noise_floor_db - silence_margin_db)
+                    chunk = self._generate_comfort_noise(length = target_silence_samples, db_level = -top_db)
 
                 out_chunks.append(chunk)
 
@@ -287,9 +296,12 @@ class AudioProcessor:
         target_silence_ms = target_silence_ms if target_silence_ms is not None else self.target_silence_ms
         fade_ms = fade_ms if fade_ms is not None else self.fade_ms
 
-        audio = self._trim_speech_region(x=audio, sr=sr, fade_ms=fade_ms)
+        noise_floor_db, energies_db = self._energy_vad(audio, sr)
+        top_db = -noise_floor_db
+
+        audio = self._trim_speech_region(x=audio, sr=sr, fade_ms=fade_ms, top_db=top_db)
         audio = self._butter_highpass(audio, sr)
-        audio = self.remove_internal_silence(x=audio, sr=sr, target_silence_ms=target_silence_ms, fade_ms=fade_ms)
+        audio = self._remove_internal_silence(x=audio, sr=sr, target_silence_ms=target_silence_ms, fade_ms=fade_ms)
 
         return audio
 
@@ -314,17 +326,19 @@ class AudioProcessor:
             audio = audio.mean(axis=1) * np.sqrt(2)
 
         # Trim silence
-        audio = self.remove_edge_silence(x=audio, sr=sr, fade_ms=fade_ms)
+        noise_floor_db, energies_db = self._energy_vad(x=audio, sr=sr)
+        top_db = -noise_floor_db
+        audio = self._remove_edge_silence(x=audio, sr=sr, fade_ms=fade_ms, top_db=top_db)
         # High-pass (DC/rumble removal)
-        audio = self._butter_highpass(audio, sr)
+        audio = self._butter_highpass(x=audio, sr=sr)
         # Remove long gaps
-        audio = self.remove_internal_silence(x=audio, sr=sr, target_silence_ms=target_silence_ms, fade_ms=fade_ms)
+        audio = self._remove_internal_silence(x=audio, sr=sr, target_silence_ms=target_silence_ms, fade_ms=fade_ms, top_db=top_db)
         # Resample if desired -> cast to float32
         if (sr != self.target_sr) and modify_sr:
             audio = librosa.resample(audio.astype(np.float32), orig_sr=sr, target_sr=self.target_sr)
             sr = self.target_sr
         # Loudness normalization (LUFS)
-        audio = self._loudness_normalize(audio, sr)
+        audio = self._loudness_normalize(x=audio, sr=sr)
         # Peak ceiling
         audio = self._peak_normalize(x=audio, peak_ceiling=self.peak_ceiling)
 

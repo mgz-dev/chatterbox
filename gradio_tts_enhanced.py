@@ -15,6 +15,7 @@ from typing import Optional
 from tts_core import load_model, generate
 from chatterbox.processors.audioprocessor import AudioProcessor
 
+
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 # os.environ["HF_HUB_OFFLINE"] = "1"  # remove comment to not request HEAD from HF
 
@@ -50,6 +51,7 @@ def generate_with_audio_processor(
     target_silence_ms: int,
     fade_ms: int,
     silence_margin_db: float,
+    vad_percentile: float,
     use_memory_io: bool,
 ):
     """
@@ -69,6 +71,7 @@ def generate_with_audio_processor(
         silence_margin_db=silence_margin_db,
         seed=seed,
         use_memory_io=use_memory_io,
+        vad_percentile=vad_percentile
     )
 
     # 2) invoke core generate; it returns 6 items
@@ -119,40 +122,41 @@ with gr.Blocks(title="ChatterboxTTS Modified") as demo:
             cfg_weight = gr.Slider(0.0, 1, step=0.05, label="CFG / pace", value=0.5)
             temperature = gr.Slider(0.05, 5, step=0.05, label="Temperature", value=0.8)
             whisper_model = gr.Dropdown(choices=["none", "tiny", "base", "small", "medium", "large"], value="none", label="Whisper model")
-            output_format = gr.Radio(["wav", "mp3"], value="wav", label="Output format")
 
-            with gr.Accordion("More options", open=False):
+            with gr.Accordion("Advanced generation options", open=False):
                 max_retries = gr.Slider(0, 6, step=1, value=2, label="Max retries per chunk (ASR QA)")
                 seed = gr.Number(value=0, label="Global random seed (0 = random)")
                 min_p = gr.Slider(0.00, 1.00, step=0.01, value=0.05, label="min_p (n-sampler) | Recommend 0.02 > 0.1")
                 top_p = gr.Slider(0.00, 1.00, step=0.01, value=1.00, label="top_p (original sampler) | 1 disables")
                 rep_penalty = gr.Slider(1.0, 2.0, step=0.1, value=1.2, label="Repetition penalty")
+                output_format = gr.Radio(["wav", "mp3"], value="wav", label="Output format")
 
             # ---- AudioProcessor Settings ----
             with gr.Accordion("Audio Processor Settings", open=False):
-                sr = gr.Slider(8_000, 48_000, step=1_000, value=AUD_PROC.target_sr, label="Target sample rate")
-                lufs = gr.Slider(-40.0, -10, step=0.5, value=AUD_PROC.target_lufs, label="Target LUFS")
+                sr = gr.Slider(16_000, 48_000, step=1_000, value=AUD_PROC.target_sr, label="Target sample rate | Output sample rate")
+                lufs = gr.Slider(-30.0, 0, step=1, value=AUD_PROC.target_lufs, label="Target LUFS | Loudness")
                 peak_ceiling = gr.Slider(-14.0, -1, step=1.0, value=AUD_PROC.peak_ceiling, label="Peak ceiling (dB)")
                 hpf_cutoff = gr.Slider(0, 100, step=10, value=AUD_PROC.hpf_cutoff, label="HPF cutoff (Hz)")
-                butter_order = gr.Slider(1, 10, step=1, value=AUD_PROC.butter_order, label="Butterworth order")
-                target_silence_ms = gr.Slider(0, 2_000, step=50, value=AUD_PROC.target_silence_ms, label="Target silence (ms)")
+                butter_order = gr.Slider(1, 4, step=1, value=AUD_PROC.butter_order, label="Butterworth order (for HPF)")
+                target_silence_ms = gr.Slider(0, 4_000, step=50, value=AUD_PROC.target_silence_ms, label="Target silence (ms)")
                 fade_ms = gr.Slider(0, 100, step=5, value=AUD_PROC.fade_ms, label="Fade duration (ms)")
-                silence_margin = gr.Slider(0.0, 10.0, step=0.5, value=AUD_PROC.silence_margin_db, label="Silence margin (dB)")
-                use_memory_io_cb = gr.Checkbox(
-                    value=AUD_PROC.use_memory_io,
-                    label="Use in-memory I/O",
-                )
+                silence_margin = gr.Slider(-10, 20.0, step=1, value=AUD_PROC.silence_margin_db, label="Silence margin (dB) | Higher is less aggressive trimming (increases top db)")
+                vad_percentile = gr.Slider(0, 50, step=1, value=AUD_PROC.vad_percentile, label="Percentile for determining floor noise | Lower is less aggressive trimming")
+                use_memory_io = gr.Checkbox( value=AUD_PROC.use_memory_io, label="Use in-memory I/O")
 
             # ---- Run button ----
             run_btn = gr.Button("Generate", variant="primary")
 
         # ---- OUTPUTS ----
         with gr.Column(scale=1):
-            cleaned_audio_prompt_path = gr.Audio(label="Cleaned audio prompt", type="filepath")
-            raw_out = gr.Audio(label="Raw TTS output (pre-normalization)", type="filepath")
             final_out = gr.Audio(label="Cleaned Output (Converted File)", type="filepath")
             transcript_out = gr.Textbox(label="ASR transcript (auto-evaluated)", lines=6)
             score_out = gr.Number(label="Score (1 = perfect)", precision=3)
+
+            with gr.Accordion("Additional outputs", open=False):
+                cleaned_audio_prompt_path = gr.Audio(label="Cleaned audio prompt", type="filepath")
+                raw_out = gr.Audio(label="Raw TTS output (pre-normalization)", type="filepath")
+                # TODO: Consider outputting a plot of the energy of clip to determine trimming db
 
     # Load the TTS model
     demo.load(load_model, inputs=[], outputs=model_state)
@@ -183,7 +187,8 @@ with gr.Blocks(title="ChatterboxTTS Modified") as demo:
             target_silence_ms,
             fade_ms,
             silence_margin,
-            use_memory_io_cb,
+            vad_percentile,
+            use_memory_io,
         ],
         outputs=[
             cleaned_audio_prompt_path,

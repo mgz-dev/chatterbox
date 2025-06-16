@@ -23,7 +23,7 @@ class ASRVerifier:
     Wraps OpenAI Whisper or faster-whisper for transcription + reference comparison.
     Uses Word Error Rate via jiwer for a word-level accuracy score.
     """
-
+    # TODO: consider testing and migrating to https://github.com/ggml-org/whisper.cpp
     def __init__(
         self,
         model_name: str,
@@ -50,6 +50,9 @@ class ASRVerifier:
         else:
             torch_dev = torch.device(device)
             fw_dev = device.split(":", 1)[0]
+        
+        if fw_dev == "mps":
+            fw_dev = "cpu"
 
         if self.use_faster:
             compute_type = "float16" if fw_dev == "cuda" else "float32"
